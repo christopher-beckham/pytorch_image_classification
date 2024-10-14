@@ -14,7 +14,7 @@ import torch.nn as nn
 import torch.distributed as dist
 import torchvision
 
-from fvcore.common.checkpoint import Checkpointer
+# from fvcore.common.checkpoint import Checkpointer
 
 from pytorch_image_classification import (
     apply_data_parallel_wrapper,
@@ -41,6 +41,8 @@ from pytorch_image_classification.utils import (
     set_seed,
     setup_cudnn,
 )
+
+import json
 
 global_step = 0
 
@@ -344,9 +346,9 @@ def main():
 
     output_dir = pathlib.Path(config.train.output_dir)
     if get_rank() == 0:
-        if not config.train.resume and output_dir.exists():
-            raise RuntimeError(
-                f'Output directory `{output_dir.as_posix()}` already exists')
+        #if not config.train.resume and output_dir.exists():
+        #    raise RuntimeError(
+        #        f'Output directory `{output_dir.as_posix()}` already exists')
         output_dir.mkdir(exist_ok=True, parents=True)
         if not config.train.resume:
             save_config(config, output_dir / 'config.yaml')
@@ -361,88 +363,17 @@ def main():
                            filename='log.txt')
     logger.info(config)
     logger.info(get_env_info(config))
-
-    train_loader, val_loader = create_dataloader(config, is_train=True)
-
     model = create_model(config)
     macs, n_params = count_op(config, model)
+
     logger.info(f'MACs   : {macs}')
     logger.info(f'#params: {n_params}')
 
-    optimizer = create_optimizer(config, model)
-    if config.device != 'cpu' and config.train.use_apex:
-        model, optimizer = apex.amp.initialize(
-            model, optimizer, opt_level=config.train.precision)
-    model = apply_data_parallel_wrapper(config, model)
-
-    scheduler = create_scheduler(config,
-                                 optimizer,
-                                 steps_per_epoch=len(train_loader))
-    checkpointer = Checkpointer(model,
-                                optimizer=optimizer,
-                                scheduler=scheduler,
-                                save_dir=output_dir,
-                                save_to_disk=get_rank() == 0)
-
-    start_epoch = config.train.start_epoch
-    scheduler.last_epoch = start_epoch
-    if config.train.resume:
-        checkpoint_config = checkpointer.resume_or_load('', resume=True)
-        global_step = checkpoint_config['global_step']
-        start_epoch = checkpoint_config['epoch']
-        config.defrost()
-        config.merge_from_other_cfg(ConfigNode(checkpoint_config['config']))
-        config.freeze()
-    elif config.train.checkpoint != '':
-        checkpoint = torch.load(config.train.checkpoint, map_location='cpu')
-        if isinstance(model,
-                      (nn.DataParallel, nn.parallel.DistributedDataParallel)):
-            model.module.load_state_dict(checkpoint['model'])
-        else:
-            model.load_state_dict(checkpoint['model'])
-
-    if get_rank() == 0 and config.train.use_tensorboard:
-        tensorboard_writer = create_tensorboard_writer(
-            config, output_dir, purge_step=config.train.start_epoch + 1)
-        tensorboard_writer2 = create_tensorboard_writer(
-            config, output_dir / 'running', purge_step=global_step + 1)
-    else:
-        tensorboard_writer = DummyWriter()
-        tensorboard_writer2 = DummyWriter()
-
-    train_loss, val_loss = create_loss(config)
-
-    if (config.train.val_period > 0 and start_epoch == 0
-            and config.train.val_first):
-        validate(0, config, model, val_loss, val_loader, logger,
-                 tensorboard_writer)
-
-    for epoch, seed in enumerate(epoch_seeds[start_epoch:], start_epoch):
-        epoch += 1
-
-        np.random.seed(seed)
-        train(epoch, config, model, optimizer, scheduler, train_loss,
-              train_loader, logger, tensorboard_writer, tensorboard_writer2)
-
-        if config.train.val_period > 0 and (epoch % config.train.val_period
-                                            == 0):
-            validate(epoch, config, model, val_loss, val_loader, logger,
-                     tensorboard_writer)
-
-        tensorboard_writer.flush()
-        tensorboard_writer2.flush()
-
-        if (epoch % config.train.checkpoint_period
-                == 0) or (epoch == config.scheduler.epochs):
-            checkpoint_config = {
-                'epoch': epoch,
-                'global_step': global_step,
-                'config': config.as_dict(),
-            }
-            checkpointer.save(f'checkpoint_{epoch:05d}', **checkpoint_config)
-
-    tensorboard_writer.close()
-    tensorboard_writer2.close()
+    cfg_dict = {k:v for k,v in config.items()}
+    cfg_dict['n_params'] = n_params
+    cfg_dict['macs'] = macs
+    with open(f"{output_dir}/cfg.json", "w") as f:
+        f.write(json.dumps(cfg_dict))
 
 
 if __name__ == '__main__':
