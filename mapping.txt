@@ -12,3 +12,6 @@ shake_shake_64d shake_shake_26_2x64d_SSI/exp00/cfg.json
 shake_shake_96d shake_shake_26_2x96d_SSI/exp00/cfg.json
 wide_resnet_28_10_cutout wrn_28_10/cfg.json 
 wide_resnet_28_10 wrn_28_10_cutout16/cfg.json
+vgg_15_BN_64 vgg/exp00/cfg.json
+pyramidnet_basic_110_84 pyramidnet_basic_110_84/exp00/cfg.json
+pyramidnet_basic_110_270 pyramidnet_basic_110_270/exp00/cfg.json
