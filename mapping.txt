@@ -1,0 +1,14 @@
+resnet_basic_110 resnet_110/exp00/cfg.json
+resnet_basic_32 resnet_32/exp00/cfg.json 
+resnet_basic_44 resnet_44/exp00/cfg.json
+resnet_basic_56 resnet_56/exp00/cfg.json
+resnet_v2_basic_110 resnet_preact_basic_110/exp00/cfg.json
+resnet_v2_bottleneck_164 resnet_preact_bottleneck_164/exp00/cfg.json
+resnext_29_4x64d resnext_29_4x64d/exp00/cfg.json
+resnext_29_8x64d resnext_29_8x64d/exp00/cfg.json
+shake_shake_32d shake_shake_26_2x32d_SSI/exp00/cfg.json
+shake_shake_64d_cutout shake_shake_26_2x64d_SSI_cutout16/exp00/cfg.json
+shake_shake_64d shake_shake_26_2x64d_SSI/exp00/cfg.json 
+shake_shake_96d shake_shake_26_2x96d_SSI/exp00/cfg.json
+wide_resnet_28_10_cutout wrn_28_10/cfg.json 
+wide_resnet_28_10 wrn_28_10_cutout16/cfg.json
