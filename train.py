@@ -243,7 +243,7 @@ def train(epoch, config, model, optimizer, scheduler, loss_func, train_loader,
 
 
 def validate(epoch, config, model, loss_func, val_loader, logger,
-             tensorboard_writer):
+             tensorboard_writer, postfix='Val'):
     logger.info(f'Val {epoch}')
 
     device = torch.device(config.device)
@@ -262,7 +262,7 @@ def validate(epoch, config, model, loss_func, val_loader, logger,
                         image = torchvision.utils.make_grid(data,
                                                             normalize=True,
                                                             scale_each=True)
-                        tensorboard_writer.add_image('Val/Image', image, epoch)
+                        tensorboard_writer.add_image(f'{postfix}/Image', image, epoch)
 
             data = data.to(
                 device, non_blocking=config.validation.dataloader.non_blocking)
@@ -313,16 +313,25 @@ def validate(epoch, config, model, loss_func, val_loader, logger,
         elapsed = time.time() - start
         logger.info(f'Elapsed {elapsed:.2f}')
 
+
+    stats = {
+        f'{postfix}/epoch': epoch,
+        f'{postfix}/loss': loss_meter.avg,
+        f'{postfix}/acc@1': acc1_meter.avg,
+        f'{postfix}/acc@5': acc5_meter.avg
+    }
+
     if get_rank() == 0:
         if epoch > 0:
-            tensorboard_writer.add_scalar('Val/Loss', loss_meter.avg, epoch)
-        tensorboard_writer.add_scalar('Val/Acc1', acc1_meter.avg, epoch)
-        tensorboard_writer.add_scalar('Val/Acc5', acc5_meter.avg, epoch)
-        tensorboard_writer.add_scalar('Val/Time', elapsed, epoch)
+            tensorboard_writer.add_scalar(f'{postfix}/Loss', loss_meter.avg, epoch)
+        tensorboard_writer.add_scalar(f'{postfix}/Acc1', acc1_meter.avg, epoch)
+        tensorboard_writer.add_scalar(f'{postfix}/Acc5', acc5_meter.avg, epoch)
+        tensorboard_writer.add_scalar(f'{postfix}/Time', elapsed, epoch)
         if config.tensorboard.model_params:
             for name, param in model.named_parameters():
                 tensorboard_writer.add_histogram(name, param, epoch)
 
+    return stats
 
 def main():
     global global_step
@@ -344,9 +353,9 @@ def main():
 
     output_dir = pathlib.Path(config.train.output_dir)
     if get_rank() == 0:
-        if not config.train.resume and output_dir.exists():
-            raise RuntimeError(
-                f'Output directory `{output_dir.as_posix()}` already exists')
+        #if not config.train.resume and output_dir.exists():
+        #    raise RuntimeError(
+        #        f'Output directory `{output_dir.as_posix()}` already exists')
         output_dir.mkdir(exist_ok=True, parents=True)
         if not config.train.resume:
             save_config(config, output_dir / 'config.yaml')
@@ -417,6 +426,10 @@ def main():
         validate(0, config, model, val_loss, val_loader, logger,
                  tensorboard_writer)
 
+    logger.info(
+        f"We train for {config.scheduler.epochs} epochs and chkpt every {config.train.checkpoint_period} epochs"
+    )
+
     for epoch, seed in enumerate(epoch_seeds[start_epoch:], start_epoch):
         epoch += 1
 
@@ -426,8 +439,11 @@ def main():
 
         if config.train.val_period > 0 and (epoch % config.train.val_period
                                             == 0):
-            validate(epoch, config, model, val_loss, val_loader, logger,
-                     tensorboard_writer)
+            val_stats = validate(
+                epoch, config, model, val_loss, val_loader, logger,
+                tensorboard_writer
+            )
+            print(val_stats)
 
         tensorboard_writer.flush()
         tensorboard_writer2.flush()

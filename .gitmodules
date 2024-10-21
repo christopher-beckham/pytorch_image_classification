@@ -1,0 +1,3 @@
+[submodule "CIFAR-10.1"]
+	path = CIFAR-10.1
+	url = git@github.com:modestyachts/CIFAR-10.1.git
