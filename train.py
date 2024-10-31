@@ -1,8 +1,13 @@
 #!/usr/bin/env python
 
+import sys
+sys.path.append("CIFAR-10.1/code")
+import utils
+
 import argparse
 import pathlib
 import time
+import json
 
 try:
     import apex
@@ -26,6 +31,7 @@ from pytorch_image_classification import (
     get_default_config,
     update_config,
 )
+from pytorch_image_classification.transforms import _get_dataset_stats
 from pytorch_image_classification.config.config_node import ConfigNode
 from pytorch_image_classification.utils import (
     AverageMeter,
@@ -39,8 +45,30 @@ from pytorch_image_classification.utils import (
     get_rank,
     save_config,
     set_seed,
-    setup_cudnn,
+    setup_cudnn
 )
+
+from einops import rearrange
+from torch.utils.data import Dataset, DataLoader
+from torchvision import transforms as tf
+import torch
+class CIFAR10p1(Dataset):
+    def __init__(self, transform=None, version='v4'):
+        images, labels = utils.load_new_test_data(version)
+        num_images = images.shape[0]
+        #print('\nLoaded version "{}" of the CIFAR-10.1 dataset.'.format(version))
+        #print('There are {} images in the dataset.'.format(num_images))
+        self.images = rearrange(torch.from_numpy(images), 'b h w c -> b c h w')
+        self.labels = torch.from_numpy(labels).long()
+        assert len(self.images) == len(self.labels)
+        self.transform = transform
+    def __getitem__(self, idc):
+        img, label = self.images[idc], self.labels[idc]
+        if self.transform is not None:
+            img = self.transform(img)
+        return img, label
+    def __len__(self):
+        return len(self.images)
 
 global_step = 0
 
@@ -54,6 +82,7 @@ def load_config():
     args = parser.parse_args()
 
     config = get_default_config()
+    
     if args.config is not None:
         config.merge_from_file(args.config)
     config.merge_from_list(args.options)
@@ -268,6 +297,8 @@ def validate(epoch, config, model, loss_func, val_loader, logger,
                 device, non_blocking=config.validation.dataloader.non_blocking)
             targets = targets.to(device)
 
+            #print(postfix, data.min(), data.max(), data.dtype, data.shape)
+
             outputs = model(data)
             loss = loss_func(outputs, targets)
 
@@ -372,6 +403,29 @@ def main():
     logger.info(get_env_info(config))
 
     train_loader, val_loader = create_dataloader(config, is_train=True)
+    
+    # now load cifar10.1 dataset
+    mean, std = _get_dataset_stats(config)
+    
+    dataset_test = CIFAR10p1(
+        transform=tf.Compose([
+            lambda x: x.to(dtype=torch.float32)/255.,
+            tf.Normalize(mean, std)
+        ])
+    )
+    if dist.is_available() and dist.is_initialized():
+        sampler = torch.utils.data.distributed.DistributedSampler(dataset_test)
+    else:
+        sampler = None
+    test_loader = torch.utils.data.DataLoader(
+        dataset_test,
+        batch_size=config.test.batch_size,
+        num_workers=config.test.dataloader.num_workers,
+        sampler=sampler,
+        shuffle=False,
+        drop_last=False,
+        pin_memory=config.test.dataloader.pin_memory
+    )
 
     model = create_model(config)
     macs, n_params = count_op(config, model)
@@ -430,6 +484,7 @@ def main():
         f"We train for {config.scheduler.epochs} epochs and chkpt every {config.train.checkpoint_period} epochs"
     )
 
+    f_json = open(f'{output_dir}/results.jsonl', 'a')
     for epoch, seed in enumerate(epoch_seeds[start_epoch:], start_epoch):
         epoch += 1
 
@@ -441,9 +496,16 @@ def main():
                                             == 0):
             val_stats = validate(
                 epoch, config, model, val_loss, val_loader, logger,
-                tensorboard_writer
+                tensorboard_writer, postfix='Val'
             )
-            print(val_stats)
+            test_stats = validate(
+                epoch, config, model, val_loss, test_loader, logger,
+                tensorboard_writer, postfix='Test'
+            )
+            val_stats.update(test_stats)
+            f_json.write(json.dumps(val_stats) + "\n")
+            f_json.flush()
+            logger.info(val_stats)
 
         tensorboard_writer.flush()
         tensorboard_writer2.flush()
@@ -459,7 +521,7 @@ def main():
 
     tensorboard_writer.close()
     tensorboard_writer2.close()
-
+    f_json.close()
 
 if __name__ == '__main__':
     main()
