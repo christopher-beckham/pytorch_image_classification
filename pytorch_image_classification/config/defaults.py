@@ -183,6 +183,7 @@ config.train.dist.local_rank = 0
 config.train.dist.use_sync_bn = False
 
 config.augmentation = ConfigNode()
+config.augmentation.use_rand_augment = False
 config.augmentation.use_random_crop = True
 config.augmentation.use_random_horizontal_flip = True
 config.augmentation.use_cutout = False

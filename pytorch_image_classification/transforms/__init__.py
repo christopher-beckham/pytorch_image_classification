@@ -13,6 +13,7 @@ from .transforms import (
     Resize,
     ToTensor,
 )
+from torchvision.transforms import RandAugment
 
 from .cutout import Cutout, DualCutout
 from .random_erasing import RandomErasing
@@ -55,16 +56,25 @@ def create_transform(config: yacs.config.CfgNode, is_train: bool) -> Callable:
     else:
         raise ValueError
 
+from torchvision.transforms import InterpolationMode
 
 def create_cifar_transform(config: yacs.config.CfgNode,
                            is_train: bool) -> Callable:
     mean, std = _get_dataset_stats(config)
     if is_train:
         transforms = []
-        if config.augmentation.use_random_crop:
-            transforms.append(RandomCrop(config))
-        if config.augmentation.use_random_horizontal_flip:
-            transforms.append(RandomHorizontalFlip(config))
+
+        if hasattr(config.augmentation, 'use_rand_augment') and \
+            config.augmentation.use_rand_augment:
+                
+            transforms.append(
+                RandAugment(interpolation=InterpolationMode.BILINEAR)
+            )
+        else:
+            if config.augmentation.use_random_crop:
+                transforms.append(RandomCrop(config))
+            if config.augmentation.use_random_horizontal_flip:
+                transforms.append(RandomHorizontalFlip(config))
 
         transforms.append(Normalize(mean, std))
 
